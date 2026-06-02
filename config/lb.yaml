@@ -1,0 +1,18 @@
+listen: ":8080"
+
+backends:
+  - addr: "10.0.0.10:3001"
+  - addr: "10.0.0.11:3001"
+
+health:
+  path: "/api/poker/health"
+  interval_s: 5
+  fail_threshold: 3
+  pass_threshold: 2
+
+stickiness:
+  room_id_regex: "^/api/poker/rooms/([0-9a-f-]+)"
+
+admin:
+  listen: "127.0.0.1:9090"
+  auth_token_env: "LB_ADMIN_TOKEN"

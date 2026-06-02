@@ -24,21 +24,25 @@ type vnode struct {
 }
 
 func newHashRing() *hashRing {
-	return &hashRing{clones: serverClones}
+	var ring hashRing
+	ring.clones = serverClones
+	return &ring
 }
 
-// places addr onto the ring
+// places a backend onto the ring
+// puts markers on the ring for said backend at however many clones there should be
 func (r *hashRing) add(addr string) {
 	for i := 0; i < r.clones; i++ {
 		key := fmt.Sprintf("%s#%d", addr, i)
-		r.vnodes = append(r.vnodes, vnode{
-			hash: hashKey(key),
-			addr: addr,
-		})
+		hash := hashKey(key)
+		node := vnode{hash: hash, addr: addr}
+		r.vnodes = append(r.vnodes, node)
 	}
-	sort.Slice(r.vnodes, func(i, j int) bool {
+
+	byHash := func(i, j int) bool {
 		return r.vnodes[i].hash < r.vnodes[j].hash
-	})
+	}
+	sort.Slice(r.vnodes, byHash)
 }
 
 // takes addr off of the ring

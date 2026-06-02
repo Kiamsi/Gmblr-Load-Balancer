@@ -29,49 +29,55 @@ func newHashRing() *hashRing {
 	return &ring
 }
 
+func hashKey(key string) uint32 {
+	sum := md5.Sum([]byte(key))
+	return binary.BigEndian.Uint32(sum[:4])
+}
+
 // places a backend onto the ring
 // puts markers on the ring for said backend at however many clones there should be
-func (r *hashRing) add(addr string) {
-	for i := 0; i < r.clones; i++ {
+func (ring *hashRing) add(addr string) {
+	for i := 0; i < ring.clones; i++ {
 		key := fmt.Sprintf("%s#%d", addr, i)
 		hash := hashKey(key)
 		node := vnode{hash: hash, addr: addr}
-		r.vnodes = append(r.vnodes, node)
+		ring.vnodes = append(ring.vnodes, node)
 	}
 
 	byHash := func(i, j int) bool {
-		return r.vnodes[i].hash < r.vnodes[j].hash
+		return ring.vnodes[i].hash < ring.vnodes[j].hash
 	}
-	sort.Slice(r.vnodes, byHash)
+	sort.Slice(ring.vnodes, byHash)
 }
 
 // takes addr off of the ring
-func (r *hashRing) Remove(addr string) {
-	filtered := r.vnodes[:0]
-	for _, v := range r.vnodes {
+func (ring *hashRing) Remove(addr string) {
+	filtered := ring.vnodes[:0]
+	for _, v := range ring.vnodes {
 		if v.addr != addr {
 			filtered = append(filtered, v)
 		}
 	}
-	r.vnodes = filtered
+	ring.vnodes = filtered
 }
 
 // returns the backend address for key by finding the nearest virtual clone/node
-func (r *hashRing) Get(key string) string {
-	if len(r.vnodes) == 0 {
+func (ring *hashRing) Get(key string) string {
+	if len(ring.vnodes) == 0 {
 		return ""
 	}
-	h := hashKey(key)
-	idx := sort.Search(len(r.vnodes), func(i int) bool {
-		return r.vnodes[i].hash >= h
-	})
-	if idx == len(r.vnodes) {
-		idx = 0
-	}
-	return r.vnodes[idx].addr
-}
 
-func hashKey(key string) uint32 {
-	sum := md5.Sum([]byte(key))
-	return binary.BigEndian.Uint32(sum[:4])
+	hash := hashKey(key)
+
+	firstNodeAtOrPast := func(i int) bool {
+		return ring.vnodes[i].hash >= hash
+	}
+
+	index := sort.Search(len(ring.vnodes), firstNodeAtOrPast)
+
+	if index == len(ring.vnodes) {
+		index = 0
+	}
+
+	return ring.vnodes[index].addr
 }

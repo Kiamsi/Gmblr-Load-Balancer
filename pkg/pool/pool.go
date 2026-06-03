@@ -1,5 +1,10 @@
 package pool
 
+import (
+	"sync"
+	"time"
+)
+
 type Status int
 
 const StatusHealthy Status = 0   //a healthy server
@@ -17,4 +22,35 @@ func (condition Status) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// backend holds all state for one upstream server.
+// All fields except Addr are protected by Pool.mu.
+type backend struct {
+	Addr             string // immutable — safe to read without a lock
+	status           Status
+	consecutiveFails int
+	consecutivePass  int
+	lastError        string
+	updatedAt        time.Time
+}
+
+// this is a read only struct only used by the admin on the /status endpoint
+// technically we can just put json tags on the existing backend struct
+// but i think this is cleaner and still fine
+type BackendInfo struct {
+	Addr      string    `json:"addr"`
+	Status    string    `json:"status"`
+	LastError string    `json:"last_error,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// i found that this mutex version is better for use cases with a lot of reads but less writes like this one
+type Pool struct {
+	mu              sync.RWMutex
+	backends        map[string]*backend
+	ring            *hashRing
+	roundRobinIndex uint64 //it needs to be unsigned...
+	failThreshold   int
+	passThreshold   int
 }

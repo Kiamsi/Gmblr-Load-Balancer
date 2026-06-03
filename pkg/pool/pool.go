@@ -47,10 +47,31 @@ type BackendInfo struct {
 
 // i found that this mutex version is better for use cases with a lot of reads but less writes like this one
 type Pool struct {
-	mu              sync.RWMutex
+	mutex           sync.RWMutex
 	backends        map[string]*backend
 	ring            *hashRing
 	roundRobinIndex uint64 //it needs to be unsigned...
 	failThreshold   int
 	passThreshold   int
+}
+
+// this function creates a Pool with the given backend addresses
+// all servers start as healthy and are placed on the ring
+func New(addrs []string, failThreshold, passThreshold int) *Pool {
+	var pool Pool
+	pool.backends = make(map[string]*backend, len(addrs))
+	pool.ring = newHashRing()
+	pool.failThreshold = failThreshold
+	pool.passThreshold = passThreshold
+
+	for _, addr := range addrs {
+		var b backend
+		b.Addr = addr
+		b.status = StatusHealthy
+		b.updatedAt = time.Now()
+		pool.backends[addr] = &b
+		pool.ring.add(addr)
+	}
+
+	return &pool
 }

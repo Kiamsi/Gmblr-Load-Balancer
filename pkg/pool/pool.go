@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -226,4 +227,28 @@ func (pool *Pool) LogSuccess(address string) {
 			pool.ring.add(address)
 		}
 	}
+}
+
+/*
+this function marks a backend as draining, it stays on the ring so
+existing rooms still reach it but is excluded from round robin.
+*/
+func (pool *Pool) MarkDraining(address string) error {
+
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+
+	backend, addressExists := pool.backends[address]
+
+	if addressExists == false {
+		return fmt.Errorf("unknown backend %q", address)
+	}
+	if backend.status == StatusUnhealthy {
+		return fmt.Errorf("backend %q is already unhealthy", address)
+	}
+
+	backend.status = StatusDraining
+	backend.updatedAt = time.Now()
+
+	return nil
 }

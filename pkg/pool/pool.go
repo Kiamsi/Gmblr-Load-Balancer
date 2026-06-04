@@ -135,3 +135,11 @@ func (pool *Pool) PickRoundRobin() *backend {
 	idx := atomic.AddUint64(&pool.roundRobinIndex, 1) - 1 // (step 3) atomic addition so only one request writes at a time
 	return healthy[int(idx)%len(healthy)]                 // (step 4) thanks to whoever wrote this on stack overflow
 }
+
+// used to return the address of a backend pointer
+func BackendAddress(backend *backend) string {
+	if backend == nil {
+		return ""
+	}
+	return backend.Addr
+}

@@ -195,3 +195,35 @@ func (pool *Pool) LogFailInstant(address, reason string) {
 		pool.ring.Remove(address)
 	}
 }
+
+/*
+	this function is called each time a server pings back as healthy
+
+	1. gets reading and writing permission
+	2. saves the current status of the server before changing
+	3. updates the pass and fail counters, eventually marks server as healthy
+	4. if the server was unhealthy but not draining it gets readded
+*/
+
+func (pool *Pool) LogSuccess(address string) {
+	pool.mutex.Lock() //step 1
+	defer pool.mutex.Unlock()
+
+	backend, addressExists := pool.backends[address]
+	if addressExists == false {
+		return
+	}
+	wasUnhealthy := backend.status == StatusUnhealthy //step 2
+	backend.consecutivePass++                         //step 3
+	backend.consecutiveFails = 0
+	backend.updatedAt = time.Now()
+
+	if backend.consecutivePass >= pool.passThreshold && backend.status != StatusHealthy {
+		backend.status = StatusHealthy
+		backend.lastError = ""
+		if wasUnhealthy { //step 4
+
+			pool.ring.add(address)
+		}
+	}
+}

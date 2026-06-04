@@ -1,6 +1,7 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -112,4 +113,23 @@ func (prober *Prober) probe(address string) {
 	}
 
 	prober.pool.LogSuccess(address) //3
+}
+
+// this function spawns goroutines for probing based on a tick timer
+// one goroutine per backend per probe is spawned
+func (prober *Prober) Run(context context.Context) {
+
+	ticker := time.NewTicker(prober.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-context.Done(): //runs when the load balancer shuts down
+			return
+		case <-ticker.C: //the channel that probes every interval
+			for _, address := range prober.pool.GetAllAddresses() {
+				go prober.probe(address)
+			}
+		}
+	}
 }

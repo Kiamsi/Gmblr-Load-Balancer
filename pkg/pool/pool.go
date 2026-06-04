@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,7 +29,7 @@ func (condition Status) String() string {
 // backend holds all state for one upstream server.
 // all fields except Addr are protected by Pool.mu. (the mutex)
 type backend struct {
-	Addr             string
+	Address          string
 	status           Status
 	consecutiveFails int
 	consecutivePass  int
@@ -40,7 +41,7 @@ type backend struct {
 // technically we can just put json tags on the existing backend struct
 // but i think this is cleaner and still fine
 type BackendInfo struct {
-	Addr      string    `json:"addr"`
+	Address   string    `json:"addr"`
 	Status    string    `json:"status"`
 	LastError string    `json:"last_error,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -65,13 +66,13 @@ func New(addresses []string, failThreshold, passThreshold int) *Pool {
 	pool.failThreshold = failThreshold
 	pool.passThreshold = passThreshold
 
-	for _, addr := range addresses {
+	for _, address := range addresses {
 		var b backend
-		b.Addr = addr
+		b.Address = address
 		b.status = StatusHealthy
 		b.updatedAt = time.Now()
-		pool.backends[addr] = &b
-		pool.ring.add(addr)
+		pool.backends[address] = &b
+		pool.ring.add(address)
 	}
 
 	return &pool
@@ -106,14 +107,18 @@ healthySlice returns current backends with a healthy status. pool.mutex is neces
 2. loops through every server and if it's healthy adds it to the list
 3. returns the slice of healthy servers
 */
-func (pool *Pool) healthySlice() []*backend {
-	result := make([]*backend, 0, len(pool.backends)) //step 1
-	for _, b := range pool.backends {
+func (p *Pool) healthySlice() []*backend {
+	result := make([]*backend, 0, len(p.backends))
+	for _, b := range p.backends {
 		if b.status == StatusHealthy {
-			result = append(result, b) //step 2
+			result = append(result, b)
 		}
 	}
-	return result // step 3
+	byAddress := func(i, j int) bool {
+		return result[i].Address < result[j].Address
+	}
+	sort.Slice(result, byAddress)
+	return result
 }
 
 /*
@@ -141,5 +146,52 @@ func BackendAddress(backend *backend) string {
 	if backend == nil {
 		return ""
 	}
-	return backend.Addr
+	return backend.Address
+}
+
+/*
+this function is called by the health checker each time a health check fails.
+in this case, it updates the given backend's fails and passes, saves the reason for the fail
+and if the fails reach the limit it takes the server off the ring
+*/
+func (pool *Pool) LogFail(address, reason string) {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+
+	backend, addressExists := pool.backends[address]
+
+	if addressExists == false {
+		return
+	}
+
+	backend.consecutiveFails++
+	backend.consecutivePass = 0
+	backend.lastError = reason
+	backend.updatedAt = time.Now()
+
+	if backend.consecutiveFails >= pool.failThreshold && backend.status != StatusUnhealthy {
+		backend.status = StatusUnhealthy
+		pool.ring.Remove(address)
+	}
+}
+
+// same function, but skips the fail counting
+// used to take a server off instantly, for whenever it's draining or unhealthy
+func (pool *Pool) LogFailInstant(address, reason string) {
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+
+	backend, addressExists := pool.backends[address]
+	if addressExists == false {
+		return
+	}
+	backend.consecutiveFails = pool.failThreshold
+	backend.consecutivePass = 0
+	backend.lastError = reason
+	backend.updatedAt = time.Now()
+
+	if backend.status != StatusUnhealthy {
+		backend.status = StatusUnhealthy
+		pool.ring.Remove(address)
+	}
 }

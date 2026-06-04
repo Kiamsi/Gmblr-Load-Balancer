@@ -271,3 +271,40 @@ func (pool *Pool) MarkUnhealthy(address, reason string) {
 
 	pool.ring.Remove(address)
 }
+
+// returns a list of every backend server's address regardless of status
+// used by health.go to launch concurrent threads for each one's health checks
+func (pool *Pool) GetAllAddresses() []string {
+
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+
+	addresses := make([]string, 0, len(pool.backends))
+
+	for address := range pool.backends {
+		addresses = append(addresses, address)
+	}
+
+	return addresses
+}
+
+// info returns a read only view of all backends. used by the admin api.
+// runs on GET /status
+func (pool *Pool) ServersInfo() []BackendInfo {
+
+	pool.mutex.RLock()
+	defer pool.mutex.RUnlock()
+
+	servers := make([]BackendInfo, 0, len(pool.backends))
+
+	for _, backend := range pool.backends {
+		servers = append(servers, BackendInfo{
+			Address:   backend.Address,
+			Status:    backend.status.String(),
+			LastError: backend.lastError,
+			UpdatedAt: backend.updatedAt,
+		})
+	}
+
+	return servers
+}

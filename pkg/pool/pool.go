@@ -252,3 +252,22 @@ func (pool *Pool) MarkDraining(address string) error {
 
 	return nil
 }
+
+// marks a server as unhealthy and removes it from the ring
+// called by the proxy when a server gets sent a retry and still fails
+func (pool *Pool) MarkUnhealthy(address, reason string) {
+
+	pool.mutex.Lock()
+	defer pool.mutex.Unlock()
+
+	backend, addressExists := pool.backends[address]
+	if addressExists == false {
+		return
+	}
+
+	backend.status = StatusUnhealthy
+	backend.lastError = reason
+	backend.updatedAt = time.Now()
+
+	pool.ring.Remove(address)
+}

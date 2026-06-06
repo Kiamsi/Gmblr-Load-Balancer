@@ -196,3 +196,37 @@ func copyResponseHeaders(destination, source http.Header) {
 		}
 	}
 }
+
+func (proxy *Proxy) forward(writer http.ResponseWriter, request *http.Request, backendAddress string) int{
+
+	for attempt:=1; attempt <= 2; attempt++ {
+
+		requestToSend, err := proxy.buildRequest(request, backendAddress){
+			
+			if err != nil {
+				http.Error(writer, "502 - Bad Gateway", http.StatusBadGateway)
+				return http.StatusBadGateway //if error is in the request, no retries
+			}
+
+			respone, err := proxy.httpClient.Do(requestToSend)
+
+			if err != nil {
+				
+				if attempt == 1 {
+					proxy.logWarn("connection error, retrying once on same backend", 
+								  backendAddress, 
+								  err)
+					continue
+				} else {
+
+					
+					
+				}
+
+
+			}
+
+		}
+
+	}
+}

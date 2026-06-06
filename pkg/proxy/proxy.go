@@ -62,7 +62,7 @@ func NewProxy(pool *pool.Pool, roomIDRegex string) (*Proxy, error) {
 	var transport http.Transport // step 3
 	transport.DialContext = dialer.DialContext
 	transport.ForceAttemptHTTP2 = false
-	transport.MaxIdleConns = maxIdleConnections
+	transport.MaxIdleConnsPerHost = maxIdleConnections
 	transport.IdleConnTimeout = idleConnectionTimeout
 	transport.ResponseHeaderTimeout = readHeaderTimeout
 	transport.DisableCompression = true
@@ -79,4 +79,59 @@ func NewProxy(pool *pool.Pool, roomIDRegex string) (*Proxy, error) {
 	proxy.roomIDRegex = regex
 	proxy.httpClient = &client
 	return &proxy, nil
+}
+
+/*
+	    this function governs how urls will be built for sending requests forward
+
+		- 1. builds the url for the new request to be forwarded to
+		- 2. adds it to the provided request, making a new one
+		- 3. copies the headers from the provided request into the new one
+		- 4. extracts the host ip
+		- 5. sets additional headers
+		- 6. preserves the original domain so requests are forwarded correctly
+*/
+func (proxy *Proxy) buildRequest(request *http.Request, backendAddress string) (*http.Request, error) {
+
+	url := fmt.Sprintf("http://%s%s", backendAddress, request.RequestURI)
+
+	requestToSend, err := http.NewRequestWithContext(
+		request.Context(),
+		request.Method,
+		url,
+		request.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for key, values := range request.Header { //
+		for _, value := range values {
+			requestToSend.Header.Add(key, value)
+		}
+	}
+
+	for _, header := range hopByHopHeaders {
+		requestToSend.Header.Del(header)
+	}
+
+	clientIp, _, _ := net.SplitHostPort(request.RemoteAddr)
+
+	// Get prior ip's on the request chain
+	prior := requestToSend.Header.Get("X-Forwarded-For")
+
+	//if there are, append to the end of the chain, if not begin a new chain
+	if prior != "" {
+		requestToSend.Header.Set("X-Forwarded-For", prior+", "+clientIp)
+	} else {
+		requestToSend.Header.Set("X-Forwarded-For", clientIp)
+	}
+
+	//additional headers for the backend to react accordingly
+	requestToSend.Header.Set("X-Forwarded-Proto", "https")
+	requestToSend.Header.Set("X-Forwarded-Host", request.Host)
+	requestToSend.Header.Set("X-Real-IP", clientIp)
+
+	requestToSend.Host = request.Host
+	return requestToSend, nil
 }

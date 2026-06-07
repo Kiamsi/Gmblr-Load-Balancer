@@ -219,11 +219,18 @@ func (proxy *Proxy) forward(writer http.ResponseWriter, request *http.Request, b
 					continue
 				} else {
 
-					
+				proxy.pool.MarkUnhealthy(backendAddress, err.Error())
+				proxy.logWarn("connection error after retry, marking unhealthy", backendAddress, err)
+			
+				if isTimeout(err) {
+				http.Error(writer, "Gateway Timeout", http.StatusGatewayTimeout)
+				return http.StatusGatewayTimeout
+				}
+			
+				http.Error(writer, "Bad Gateway", http.StatusBadGateway)
+				return http.StatusBadGateway
 					
 				}
-
-
 			}
 
 		}

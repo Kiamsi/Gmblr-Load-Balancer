@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"poker-lb/pkg/pool"
@@ -181,7 +183,7 @@ func isTimeout(err error) bool {
 	return strings.Contains(err.Error(), "context deadline exceeded")
 }
 
-// copies headers from an incoming request into an outgoing request
+// copies headers from the backend's response to the client's response
 func copyResponseHeaders(destination, source http.Header) {
 	hop := make(map[string]bool, len(hopByHopHeaders))
 	for _, header := range hopByHopHeaders {
@@ -197,43 +199,125 @@ func copyResponseHeaders(destination, source http.Header) {
 	}
 }
 
-func (proxy *Proxy) forward(writer http.ResponseWriter, request *http.Request, backendAddress string) int{
+/*
+-1. builds a request with provided info
+-2. forwards a request to a backend
+-3. retries once on an unsuccessful attempt
+-4. if again unsuccessful, marks unhealthy and returns
+-5. checks if the error was because of a timeout and returns appropriate status codes
+-6. if no errors, streams the body to the client's browser
+*/
+func (proxy *Proxy) forward(writer http.ResponseWriter, request *http.Request, backendAddress string) int {
 
-	for attempt:=1; attempt <= 2; attempt++ {
+	for attempt := 1; attempt <= 2; attempt++ {
 
-		requestToSend, err := proxy.buildRequest(request, backendAddress){
-			
-			if err != nil {
-				http.Error(writer, "502 - Bad Gateway", http.StatusBadGateway)
-				return http.StatusBadGateway //if error is in the request, no retries
-			}
+		requestToSend, err := proxy.buildRequest(request, backendAddress) //step 1
 
-			respone, err := proxy.httpClient.Do(requestToSend)
+		if err != nil {
 
-			if err != nil {
-				
-				if attempt == 1 {
-					proxy.logWarn("connection error, retrying once on same backend", 
-								  backendAddress, 
-								  err)
-					continue
-				} else {
-
-				proxy.pool.MarkUnhealthy(backendAddress, err.Error())
-				proxy.logWarn("connection error after retry, marking unhealthy", backendAddress, err)
-			
-				if isTimeout(err) {
-				http.Error(writer, "Gateway Timeout", http.StatusGatewayTimeout)
-				return http.StatusGatewayTimeout
-				}
-			
-				http.Error(writer, "Bad Gateway", http.StatusBadGateway)
-				return http.StatusBadGateway
-					
-				}
-			}
-
+			http.Error(writer, "502 - Bad Gateway", http.StatusBadGateway)
+			return http.StatusBadGateway //if error is in the request, no retries
 		}
 
+		response, err := proxy.httpClient.Do(requestToSend) //step 2
+
+		if err != nil {
+
+			if attempt == 1 {
+				proxy.logWarn("Connection error, retrying", // 3
+					backendAddress,
+					err)
+				continue
+			} else {
+
+				proxy.pool.MarkUnhealthy(backendAddress, err.Error()) // 4
+				proxy.logWarn("Connection error after retry, marking unhealthy", backendAddress, err)
+
+			}
+
+			if isTimeout(err) { // 5
+
+				http.Error(writer, "Gateway Timeout", http.StatusGatewayTimeout)
+				return http.StatusGatewayTimeout
+
+			} else {
+
+				http.Error(writer, "Bad Gateway", http.StatusBadGateway)
+				return http.StatusBadGateway
+			}
+		}
+
+		// stream back response without buffering
+		defer response.Body.Close()
+		copyResponseHeaders(writer.Header(), response.Header)
+		writer.WriteHeader(response.StatusCode)
+		io.Copy(writer, response.Body) //step 6
+		return response.StatusCode
 	}
+
+	return http.StatusBadGateway
+}
+
+// logs information regarding everything about a request
+func (proxy *Proxy) logRequest(request *http.Request, roomID, backendAddress string, status int, duration time.Duration) {
+
+	clientIP, _, _ := net.SplitHostPort(request.RemoteAddr)
+
+	entry := map[string]any{
+		"ts":          time.Now().UTC().Format(time.RFC3339),
+		"src_ip":      clientIP,
+		"method":      request.Method,
+		"path":        request.URL.Path,
+		"backend":     backendAddress,
+		"status":      status,
+		"duration_ms": duration.Milliseconds(),
+	}
+
+	if roomID != "" {
+		entry["room_id"] = roomID
+	}
+
+	data, _ := json.Marshal(entry)
+
+	fmt.Println(string(data))
+}
+
+/*
+this is the method that's called on every incoming request,
+go calls it automatically when handed an http.Handler interface that implements
+a method with this exact name, it's not called in any file directly
+
+-1. records when a request arrives to calculate duration at the end
+-2. puts the max duration at the request lifetime
+-3. extracts room id, returns empty if there isn't one
+-4. determines whether to forward to an existing room or use round robin
+-5. forwards
+*/
+func (proxy *Proxy) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+
+	start := time.Now()
+
+	contextWithTime, cancelTime := context.WithTimeout(request.Context(), maxRequestLifetime)
+	defer cancelTime()
+
+	request = request.WithContext(contextWithTime)
+
+	roomID := proxy.extractRoomID(request.URL.Path)
+
+	var backendAddress string
+
+	if roomID != "" {
+		backendAddress = pool.BackendAddress(proxy.pool.PickByRoomID(roomID))
+	} else {
+		backendAddress = pool.BackendAddress(proxy.pool.PickRoundRobin())
+	}
+
+	if backendAddress == "" {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		proxy.logRequest(request, roomID, backendAddress, http.StatusServiceUnavailable, time.Since(start))
+		return
+	}
+
+	status := proxy.forward(writer, request, backendAddress)
+	proxy.logRequest(request, roomID, backendAddress, status, time.Since(start))
 }

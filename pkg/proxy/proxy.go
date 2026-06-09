@@ -295,18 +295,18 @@ a method with this exact name, it's not called in any file directly
 */
 func (proxy *Proxy) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
-	start := time.Now()
+	start := time.Now() //step 1
 
 	contextWithTime, cancelTime := context.WithTimeout(request.Context(), maxRequestLifetime)
 	defer cancelTime()
 
-	request = request.WithContext(contextWithTime)
+	request = request.WithContext(contextWithTime) //step 2
 
-	roomID := proxy.extractRoomID(request.URL.Path)
+	roomID := proxy.extractRoomID(request.URL.Path) //step 3
 
 	var backendAddress string
 
-	if roomID != "" {
+	if roomID != "" { //step 4
 		backendAddress = pool.BackendAddress(proxy.pool.PickByRoomID(roomID))
 	} else {
 		backendAddress = pool.BackendAddress(proxy.pool.PickRoundRobin())
@@ -318,6 +318,6 @@ func (proxy *Proxy) ServeHTTP(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	status := proxy.forward(writer, request, backendAddress)
+	status := proxy.forward(writer, request, backendAddress) //step 5
 	proxy.logRequest(request, roomID, backendAddress, status, time.Since(start))
 }

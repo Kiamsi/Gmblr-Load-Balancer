@@ -15,7 +15,7 @@ import (
 
 const connectionTimeout = time.Second * 2
 const readHeaderTimeout = 5 * time.Second
-const idleTimeout = 30 * time.Second
+const idleTimeout = 30 * time.Second //used in main.go
 const maxRequestLifetime = 60 * time.Second
 const idleConnectionTimeout = 90 * time.Second
 const maxIdleConnections = 100
@@ -248,7 +248,7 @@ func (proxy *Proxy) forward(writer http.ResponseWriter, request *http.Request, b
 		}
 
 		// stream back response without buffering
-		defer response.Body.Close()
+		response.Body.Close()
 		copyResponseHeaders(writer.Header(), response.Header)
 		writer.WriteHeader(response.StatusCode)
 		io.Copy(writer, response.Body) //step 6

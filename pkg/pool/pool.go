@@ -108,9 +108,9 @@ healthySlice returns current backends with a healthy status. pool.mutex is neces
 2. loops through every server and if it's healthy adds it to the list
 3. returns the slice of healthy servers
 */
-func (p *Pool) healthySlice() []*backend {
-	result := make([]*backend, 0, len(p.backends))
-	for _, b := range p.backends {
+func (pool *Pool) healthySlice() []*backend {
+	result := make([]*backend, 0, len(pool.backends))
+	for _, b := range pool.backends {
 		if b.status == StatusHealthy {
 			result = append(result, b)
 		}
@@ -276,8 +276,8 @@ func (pool *Pool) MarkUnhealthy(address, reason string) {
 // used by health.go to launch concurrent threads for each one's health checks
 func (pool *Pool) GetAllAddresses() []string {
 
-	pool.mutex.Lock()
-	defer pool.mutex.Unlock()
+	pool.mutex.RLock()
+	defer pool.mutex.RUnlock()
 
 	addresses := make([]string, 0, len(pool.backends))
 

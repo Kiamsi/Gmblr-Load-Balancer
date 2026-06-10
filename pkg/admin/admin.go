@@ -119,11 +119,15 @@ func (server *Server) handleDrain(writer http.ResponseWriter, request *http.Requ
 	})
 }
 
-func NewAdmin(pool *pool.Pool, authenticationToken string) *Server {
+func (server *Server) Handler() http.Handler {
+	return &server.mux
+}
+
+func NewAdmin(p *pool.Pool, authenticationToken string) *Server {
 
 	var server Server
 
-	server.pool = pool
+	server.pool = p
 	server.authenticationToken = authenticationToken
 	server.mux.HandleFunc("/status", server.authCheck(server.handleStatus))
 	server.mux.HandleFunc("/drain", server.authCheck(server.handleDrain))

@@ -118,3 +118,16 @@ func (server *Server) handleDrain(writer http.ResponseWriter, request *http.Requ
 		"message": "Backend marked draining, now call POST /api/poker/drain on the backend to complete",
 	})
 }
+
+func NewAdmin(pool *pool.Pool, authenticationToken string) *Server {
+
+	var server Server
+
+	server.pool = pool
+	server.authenticationToken = authenticationToken
+	server.mux.HandleFunc("/status", server.authCheck(server.handleStatus))
+	server.mux.HandleFunc("/drain", server.authCheck(server.handleDrain))
+
+	return &server
+
+}

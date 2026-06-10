@@ -18,7 +18,7 @@ type Server struct {
 // standard event logging for whenever necessary
 func (server *Server) logEvent(event, backend string) {
 
-	entry = map[string]any{
+	entry := map[string]any{
 
 		"ts":      time.Now().UTC().Format(time.RFC3339),
 		"event":   event,

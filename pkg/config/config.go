@@ -4,8 +4,9 @@ package config
 
 import (
 	"fmt"
-
+	"net"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,7 +20,7 @@ type Config struct {
 }
 
 type Backend struct {
-	Addr string `yaml:"addr"`
+	Address string `yaml:"addr"`
 }
 
 type Health struct {
@@ -38,34 +39,44 @@ type Admin struct {
 	AuthTokenEnv string `yaml:"auth_token_env"`
 }
 
-func (c *Config) validateYamlValues() error {
-	if c.Listen == "" {
+func (config *Config) validateYamlValues() error {
+	if config.Listen == "" {
 		return fmt.Errorf("error, listen address is necessary")
 	}
-	if len(c.Backends) == 0 {
+	if len(config.Backends) == 0 {
 		return fmt.Errorf("error, at least one backend is required")
 	}
-	for _, b := range c.Backends {
-		if b.Addr == "" {
+	for _, backend := range config.Backends {
+		if backend.Address == "" {
 			return fmt.Errorf("error, backend address cannot be empty")
 		}
+		_, _, splitError := net.SplitHostPort(backend.Address)
+		if splitError != nil {
+			return fmt.Errorf("error, backend address %q is not a valid host:port: %w", backend.Address, splitError)
+		}
 	}
-	if c.Health.Path == "" {
+	if config.Health.Path == "" {
 		return fmt.Errorf("error, health.path is missing")
 	}
-	if c.Health.IntervalS <= 0 {
+	if config.Health.IntervalS <= 0 {
 		return fmt.Errorf("error, health.interval_s must be over 0")
 	}
-	if c.Health.FailThreshold <= 0 {
+	if config.Health.FailThreshold <= 0 {
 		return fmt.Errorf("error, health.fail_threshold must be over 0")
 	}
-	if c.Health.PassThreshold <= 0 {
+	if config.Health.PassThreshold <= 0 {
 		return fmt.Errorf("error, health.pass_threshold must be over 0")
 	}
-	if c.Stickiness.RoomIDRegex == "" {
+	if config.Stickiness.RoomIDRegex == "" {
 		return fmt.Errorf("error, stickiness.room_id_regex is missing")
 	}
-	if c.Admin.Listen == "" {
+
+	_, compileError := regexp.Compile(config.Stickiness.RoomIDRegex)
+	if compileError != nil {
+		return fmt.Errorf("error, stickiness.room_id_regex is not a valid regex: %w", compileError)
+	}
+
+	if config.Admin.Listen == "" {
 		return fmt.Errorf("error, admin.listen is missing")
 	}
 	return nil

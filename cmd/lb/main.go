@@ -4,10 +4,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
+	"poker-lb/pkg/admin"
 	"poker-lb/pkg/config"
+	"poker-lb/pkg/health"
+	"poker-lb/pkg/pool"
+	"poker-lb/pkg/proxy"
 )
 
 func main() {
@@ -15,18 +20,49 @@ func main() {
 	configPath := flag.String("config", "config/lb.yaml", "path to yaml config file")
 	flag.Parse()
 
-	config, err := config.Load(*configPath)
+	configuration, err := config.Load(*configPath)
 
 	if err != nil {
 		fatalLog("Error when loading config", err)
 	}
 
-	authenticationToken := os.Getenv(config.Admin.AuthTokenEnv)
+	authenticationToken := os.Getenv(configuration.Admin.AuthTokenEnv)
 
 	if authenticationToken == "" {
 		fatalLog("Admin authentication token",
-			fmt.Errorf("env var %q is not set", config.Admin.AuthTokenEnv))
+			fmt.Errorf("env var %q is not set", configuration.Admin.AuthTokenEnv))
 	}
+
+	addresses := make([]string, len(configuration.Backends))
+
+	for i, backend := range configuration.Backends {
+		addresses[i] = backend.Address
+	}
+
+	pool := pool.New(addresses,
+		configuration.Health.FailThreshold,
+		configuration.Health.PassThreshold)
+
+	prx, err := proxy.NewProxy(pool, configuration.Stickiness.RoomIDRegex)
+
+	if err != nil {
+
+		fatalLog("Error when creating proxy", err)
+
+	}
+
+	prober := health.NewProber(pool,
+		configuration.Health.Path,
+		configuration.Health.IntervalS,
+		configuration.Health.FailThreshold,
+		configuration.Health.PassThreshold)
+
+	admin := admin.NewAdmin(pool, authenticationToken)
+
+	var proxyServer http.Server
+	proxyServer.Addr = configuration.Listen
+	proxyServer.Handler = prx
+	proxyServer.IdleTimeout = proxy.IdleTimeout
 
 }
 
@@ -46,4 +82,21 @@ func fatalLog(message string, err error) {
 	fmt.Fprintln(os.Stderr, string(data))
 	os.Exit(1)
 
+}
+
+// for logging when the process doesn't need to be killed
+func logInfo(msg string, fields map[string]any) {
+
+	entry := map[string]any{
+		"ts":    time.Now().UTC().Format(time.RFC3339),
+		"level": "info",
+		"msg":   msg,
+	}
+
+	for k, v := range fields {
+		entry[k] = v
+	}
+
+	data, _ := json.Marshal(entry)
+	fmt.Println(string(data))
 }

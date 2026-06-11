@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -57,12 +58,40 @@ func main() {
 		configuration.Health.FailThreshold,
 		configuration.Health.PassThreshold)
 
-	admin := admin.NewAdmin(pool, authenticationToken)
+	adminPanel := admin.NewAdmin(pool, authenticationToken)
 
-	var proxyServer http.Server
-	proxyServer.Addr = configuration.Listen
-	proxyServer.Handler = prx
-	proxyServer.IdleTimeout = proxy.IdleTimeout
+	var mainServer http.Server
+	mainServer.Addr = configuration.Listen
+	mainServer.Handler = prx
+	mainServer.IdleTimeout = proxy.IdleTimeout
+
+	var adminServer http.Server
+	adminServer.Addr = configuration.Admin.Listen
+	adminServer.Handler = adminPanel.Handler()
+
+	contex, cancel := context.WithCancel(context.Background())
+
+	go prober.Run(contex)
+
+	defer cancel()
+
+	go func() {
+
+		serverError := mainServer.ListenAndServe()
+
+		if serverError != nil && serverError != http.ErrServerClosed {
+			fatalLog("Main server failed to start up", serverError)
+		}
+	}()
+
+	go func() {
+
+		serverError := adminServer.ListenAndServe()
+
+		if serverError != nil && serverError != http.ErrServerClosed {
+			fatalLog("Admin server failed to start up", serverError)
+		}
+	}()
 
 }
 

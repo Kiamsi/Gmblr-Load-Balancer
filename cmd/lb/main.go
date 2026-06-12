@@ -16,6 +16,14 @@ import (
 	"poker-lb/pkg/proxy"
 )
 
+/*
+1. Pulls the config path and parses it
+2. Loads configuration
+3. Initiates the pool (the persistent hash ring and round robin algorithm)
+4. Creates the proxy (for handling incoming and outgoing requests)
+5. Creates the prober (for checking the health status of backend server on an interval)
+6. Creates the servers where the load balancer and the admin panel will run
+*/
 func main() {
 
 	configPath := flag.String("config", "config/lb.yaml", "path to yaml config file")
@@ -26,6 +34,12 @@ func main() {
 	if err != nil {
 		fatalLog("Error when loading config", err)
 	}
+
+	logInfo("config loaded", map[string]any{
+		"listen":        configuration.Listen,
+		"admin_listen":  configuration.Admin.Listen,
+		"backend_count": len(configuration.Backends),
+	})
 
 	authenticationToken := os.Getenv(configuration.Admin.AuthTokenEnv)
 
@@ -58,22 +72,25 @@ func main() {
 		configuration.Health.FailThreshold,
 		configuration.Health.PassThreshold)
 
+	contex, cancel := context.WithCancel(context.Background())
+
+	go prober.Run(contex)
+
+	defer cancel()
+
+	logInfo("health prober started", map[string]any{
+		"path":           configuration.Health.Path,
+		"interval_s":     configuration.Health.IntervalS,
+		"fail_threshold": configuration.Health.FailThreshold,
+		"pass_threshold": configuration.Health.PassThreshold,
+	})
+
 	adminPanel := admin.NewAdmin(pool, authenticationToken)
 
 	var mainServer http.Server
 	mainServer.Addr = configuration.Listen
 	mainServer.Handler = prx
 	mainServer.IdleTimeout = proxy.IdleTimeout
-
-	var adminServer http.Server
-	adminServer.Addr = configuration.Admin.Listen
-	adminServer.Handler = adminPanel.Handler()
-
-	contex, cancel := context.WithCancel(context.Background())
-
-	go prober.Run(contex)
-
-	defer cancel()
 
 	go func() {
 
@@ -83,6 +100,10 @@ func main() {
 			fatalLog("Main server failed to start up", serverError)
 		}
 	}()
+
+	var adminServer http.Server
+	adminServer.Addr = configuration.Admin.Listen
+	adminServer.Handler = adminPanel.Handler()
 
 	go func() {
 

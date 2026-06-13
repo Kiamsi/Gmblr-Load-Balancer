@@ -248,10 +248,11 @@ func (proxy *Proxy) forward(writer http.ResponseWriter, request *http.Request, b
 		}
 
 		// stream back response without buffering
-		response.Body.Close()
+
 		copyResponseHeaders(writer.Header(), response.Header)
 		writer.WriteHeader(response.StatusCode)
 		io.Copy(writer, response.Body) //step 6
+		response.Body.Close()
 		return response.StatusCode
 	}
 

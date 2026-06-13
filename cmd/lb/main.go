@@ -20,19 +20,26 @@ import (
 )
 
 /*
+The main function uses the rest of the files to start the load balancer and shut it down
+
 1. Pulls the config path and parses it
 2. Loads configuration
 3. Initiates the pool (the persistent hash ring and round robin algorithm)
 4. Creates the proxy (for handling incoming and outgoing requests)
 5. Creates the prober (for checking the health status of backend server on an interval)
 6. Creates the servers where the load balancer and the admin panel will run
+7. Makes a channel that intercepts system calls for shutdown, and the program waits there
+8. Logs the shutdown and prepares it
+9. Makes a channel listening to for the shutdown of the main and admin server
+10. Spawns goroutines for it
+11. Catches errors if any
 */
 func main() {
 
-	configPath := flag.String("config", "config/lb.yaml", "path to yaml config file")
+	configPath := flag.String("config", "config/lb.yaml", "path to yaml config file") //step 1
 	flag.Parse()
 
-	configuration, err := config.Load(*configPath)
+	configuration, err := config.Load(*configPath) //step 2
 
 	if err != nil {
 		fatalLog("Error when loading config", err)
@@ -57,11 +64,11 @@ func main() {
 		addresses[i] = backend.Address
 	}
 
-	pool := pool.New(addresses,
+	pool := pool.New(addresses, //step 3
 		configuration.Health.FailThreshold,
 		configuration.Health.PassThreshold)
 
-	prx, err := proxy.NewProxy(pool, configuration.Stickiness.RoomIDRegex)
+	prx, err := proxy.NewProxy(pool, configuration.Stickiness.RoomIDRegex) //step 4
 
 	if err != nil {
 
@@ -69,7 +76,7 @@ func main() {
 
 	}
 
-	prober := health.NewProber(pool,
+	prober := health.NewProber(pool, //step 5
 		configuration.Health.Path,
 		configuration.Health.IntervalS,
 		configuration.Health.FailThreshold,
@@ -87,9 +94,10 @@ func main() {
 		"pass_threshold": configuration.Health.PassThreshold,
 	})
 
+	//creates the admin interface with the appropriate token and handler functions
 	adminPanel := admin.NewAdmin(pool, authenticationToken)
 
-	var mainServer http.Server
+	var mainServer http.Server //step 6 (load balancer's server)
 	mainServer.Addr = configuration.Listen
 	mainServer.Handler = prx
 	mainServer.IdleTimeout = proxy.IdleTimeout
@@ -103,7 +111,7 @@ func main() {
 		}
 	}()
 
-	var adminServer http.Server
+	var adminServer http.Server //step 6 (admin's server)
 	adminServer.Addr = configuration.Admin.Listen
 	adminServer.Handler = adminPanel.Handler()
 
@@ -116,25 +124,28 @@ func main() {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1) //buffered by one so a very early signal doesn't get dropped
+	//buffered by one so a very early signal doesn't get dropped
+	quit := make(chan os.Signal, 1) //step 7
 
+	//prepares to catch these specific system calls,
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 
+	//program pauses here. it waits until something comes up on the quit channel (the specified system calls)
 	channelSignal := <-quit
 
-	logInfo("Process is shutting down", map[string]any{"Signal": channelSignal.String()})
+	logInfo("Process is shutting down", map[string]any{"Signal": channelSignal.String()}) //step 8
 	cancel()
 
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(),
 		30*time.Second)
 	defer shutdownCancel()
 
-	done := make(chan error, 2)
+	done := make(chan error, 2) //step 9
 
-	go func() { done <- mainServer.Shutdown(shutdownContext) }()
+	go func() { done <- mainServer.Shutdown(shutdownContext) }() //step 10
 	go func() { done <- adminServer.Shutdown(shutdownContext) }()
 
-	for i := 1; i <= 2; i++ {
+	for i := 1; i <= 2; i++ { //step 11
 
 		err := <-done
 
@@ -143,6 +154,7 @@ func main() {
 		}
 	}
 
+	//end of program
 	logInfo("Shutdown completed", nil)
 }
 

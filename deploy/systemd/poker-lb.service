@@ -1,0 +1,23 @@
+[Unit]
+Description=Poker Load Balancer (gmblr-poker)
+After=network.target
+
+[Service]
+Type=simple
+User=poker-lb
+Group=poker-lb
+ExecStart=/usr/local/bin/poker-lb -config /etc/poker-lb/lb.yaml
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=poker-lb
+EnvironmentFile=/etc/poker-lb/env
+TimeoutStopSec=60s
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

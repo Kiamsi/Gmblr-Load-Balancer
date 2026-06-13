@@ -26,7 +26,7 @@ type Prober struct {
 }
 
 // creates a prober, with a 5 second timeout
-func New(pool *pool.Pool, path string, intervalS, _, _ int) *Prober {
+func NewProber(pool *pool.Pool, path string, intervalS, _, _ int) *Prober {
 
 	var prober Prober
 

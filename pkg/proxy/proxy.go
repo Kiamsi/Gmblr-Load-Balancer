@@ -15,7 +15,7 @@ import (
 
 const connectionTimeout = time.Second * 2
 const readHeaderTimeout = 5 * time.Second
-const idleTimeout = 30 * time.Second //used in main.go
+const IdleTimeout = 30 * time.Second //used in main.go
 const maxRequestLifetime = 60 * time.Second
 const idleConnectionTimeout = 90 * time.Second
 const maxIdleConnections = 100

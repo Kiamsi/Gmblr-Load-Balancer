@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"poker-lb/pkg/admin"
@@ -73,10 +76,9 @@ func main() {
 		configuration.Health.PassThreshold)
 
 	contex, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	go prober.Run(contex)
-
-	defer cancel()
 
 	logInfo("health prober started", map[string]any{
 		"path":           configuration.Health.Path,
@@ -114,6 +116,34 @@ func main() {
 		}
 	}()
 
+	quit := make(chan os.Signal, 1) //buffered by one so a very early signal doesn't get dropped
+
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+
+	channelSignal := <-quit
+
+	logInfo("Process is shutting down", map[string]any{"Signal": channelSignal.String()})
+	cancel()
+
+	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(),
+		30*time.Second)
+	defer shutdownCancel()
+
+	done := make(chan error, 2)
+
+	go func() { done <- mainServer.Shutdown(shutdownContext) }()
+	go func() { done <- adminServer.Shutdown(shutdownContext) }()
+
+	for i := 1; i <= 2; i++ {
+
+		err := <-done
+
+		if err != nil {
+			log.Printf("Shutdown error: %v", err)
+		}
+	}
+
+	logInfo("Shutdown completed", nil)
 }
 
 // function for logging critical errors

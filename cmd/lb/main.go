@@ -177,16 +177,16 @@ func fatalLog(message string, err error) {
 }
 
 // for logging when the process doesn't need to be killed
-func logInfo(msg string, fields map[string]any) {
+func logInfo(message string, fields map[string]any) {
 
 	entry := map[string]any{
-		"ts":    time.Now().UTC().Format(time.RFC3339),
-		"level": "info",
-		"msg":   msg,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"level":     "info",
+		"message":   message,
 	}
 
-	for k, v := range fields {
-		entry[k] = v
+	for key, value := range fields {
+		entry[key] = value
 	}
 
 	data, _ := json.Marshal(entry)
